@@ -1,0 +1,195 @@
+---
+title: "HW7_Wei_Yanran"
+output:
+  pdf_document: default
+  html_notebook: default
+  html_document: default
+---
+
+# Problem 2: Sums of Squares
+
+Four methods are used in calculating sums of squares. These methods are loop, vector operations, dopar and parSapply methods. The time for running these methods are displayed in the table below.The dataset is 1e+06 data selected from normal distribution with mean of 1 and standard deviation of 1. I shrink the dataset from 1e+7 to 1e+6 because my computer will get stuck when running parSapply method.
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+set.seed(12345)
+y <- rnorm(n = 1e+06, mean = 1, sd = 1)
+```
+
+
+```{r, echo = FALSE, message=FALSE, warning=FALSE}
+library(pander)
+
+#################### Loop Method###############
+t_lo <-
+    system.time({
+    mean_y <- mean(y)
+    sum_difa <- 0
+    for (i in 1:length(y)){
+        sum_difa <- sum_difa + (y[i] - mean_y)^2
+    }
+})
+Loop_Method <- c(t_lo[1:3], sum_difa)
+
+#################### Vector Method###########
+t_vec<-
+    system.time({
+  mean_y <- mean(y)
+  diff_y <- y - mean_y
+  sum_difb <- as.numeric(t(diff_y) %*% diff_y)
+})
+Vector_Method <- c(t_vec[1:3], sum_difb)
+
+################ Dopar Method##############
+library(foreach)
+library(doParallel)
+cl <- makeCluster(2)
+registerDoParallel(cl)
+t_dop <- 
+    system.time({
+    mean_y <- mean(y)
+    sum_difc <- foreach(1) %dopar% sum((y - mean_y)^2)
+    })
+stopCluster(cl)
+Dopar_Method <- c(t_dop[1:3], sum_difc)
+
+############### ParSapply Method###############
+mean_y <- mean(y)
+t_parsap <- 
+    system.time({
+        c2 <- makeCluster(2)
+        clusterExport(c2, "mean_y")
+        sum_difd <- sum(parSapply(c2, y, function(y) (y-mean_y)^2))
+    })
+stopCluster(c2)
+ParSapply_Method <- c(t_parsap[1:3], sum_difd)
+
+#################### Summary####################
+time_1 <- rbind(Loop_Method, Vector_Method, Dopar_Method, ParSapply_Method)
+colnames(time_1)[4] <- c("Sum of Squares")
+pander(time_1, caption = "Time for Different Methods")
+```
+
+From the table, we can see that vector operations method perform the best, then dopar method and loop method. Parsapply method perfom worst. Sum of squares value is same for all four methods. The cluster I set in Dopar and ParSapply method is 2.
+
+# Problem 3
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+
+################## Create data point################
+set.seed(1256)
+theta <- as.matrix(c(1,2),nrow=2)
+X <- cbind(1,rep(1:10,10))
+h <- X%*%theta+rnorm(100,0,0.2)
+m <- length(h)
+cl <- makeCluster(2)
+registerDoParallel(cl)
+    
+############### Gradient descent################
+GD_time <- 
+system.time({
+dif1 <- 1
+dif2 <- 1
+alpha <- 0.001
+ttheta <- 
+  foreach (i = 1:10, .combine = "cbind") %dopar% {
+  tolerance <- 10^(1-i)
+  while(dif1 > tolerance | dif2 > tolerance){
+  grad_0 <- (1/m) * sum(((X%*%theta) - h))
+  grad_1 <- (1/m) * t(X[, 2]) %*% ((X%*%theta) - h)
+  theta_0 <- theta[1] - alpha * grad_0
+  theta_1 <- theta[2] - alpha * grad_1
+  dif1 <- abs(theta_0 - theta[1])
+  dif2 <- abs(theta_1 - theta[2])
+  theta[1] <- theta_0
+  theta[2] <- theta_1
+  } 
+  
+  return(c(tolerance, theta[1], theta[2]))
+  }
+})
+theta <- t(ttheta)
+colnames(theta) <- c("Tolerance", "theta1", "theta2")
+stopCluster(cl)
+
+################## Linear regression##############
+Linear_Time <- 
+system.time({
+  lm_h <- lm(h~0+X)
+Linear_coef <- t(data.frame(lm_h$coefficients))
+})
+
+################## Summary###################
+pander(rbind(GD_time, Linear_Time), caption = "Running time for GD and Linear Methods")
+pander(theta, caption = "Coefficients of GD Method")
+pander(Linear_coef, caption = "Coefficients of Linear Regression Methods")
+```
+
+In the parallelize method, cluster 2 was used. The parameter I made adjustment on is tolerance. As shown in the table *Coefficients of GD Method*, as tolerance becoming smaller, the coefficients becomes more accurate. When tolerance is less or equal than 1e-08, we get the same coefficients with that calculated by linear regression.But gradient descent method seems take more time than linear regression method.
+
+# problem 4
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+set.seed(1267)
+n <- 200
+X <- 1/cbind(1, rt(n, df = 1), rt(n, df = 1), rt(n, df = 1))
+beta <- c(1, 2, 3, 0)
+Y <- X %*% beta + rnorm(100, sd = 3)
+data <- cbind(X, Y)
+```
+
+## a
+
+Dopar function was used to bootstrop 10000 samples from Y and X. Each sample contains 10 parwise data and is chosen from the 200 pairwise dataset of X and Y. Linear regression model was built to test the relationship between x and y and to get the coefficients of the regression line.Cluster 2 was utilized.
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+Y <- data[, 5]  
+X1 <- data[, 1]
+X2 <- data[, 2]
+X3 <- data[, 3]
+X4 <- data[, 4]
+cl <- makeCluster(2)
+registerDoParallel(cl)
+beta <- matrix(NA, nrow = 10000, ncol = 4)
+colnames(beta) <- c("Intercept", "X2", "X3", "X4")
+tbeta <-
+  foreach (b = 1:10000, .combine = data.frame) %dopar% {  
+    i <- sample(1:200, size = 10, replace = TRUE)  
+    y <- Y[i]  
+    x1 <- X1[i]  
+    x2 <- X2[i]  
+    x3 <- X3[i]  
+    x4 <- X4[i]  
+    lm(y~0+x1+x2+x3+x4)$coef 
+  }  
+beta <- t(tbeta)
+stopCluster(cl)
+```
+
+## b
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+library(pander)
+pander(head(beta), caption = "Overview of Beta")
+pander(summary(beta), caption = "Summary of Beta")
+```
+
+As shown in the table *Overvie of Beta*, we get a matrix of beta with 10000 rows of results. Each row contains the coefficients(betas) value of the regression between x and y.
+
+In the table *Summary of Beta*, we can see the statistics summary of these betas. Take X1 as example. The column X1 shows the summary for beta1. The minimum value of beta1 is -3.973 while the maximum value is 13.715. The median value is 1.25 and the mena value is 1.239.
+
+## c
+
+```{r, echo = F, message=FALSE, warning=FALSE}
+par(mfrow = c(2, 2))
+hist(beta[, 1], main = "Histogram of Beta1")
+hist(beta[, 2], main = "Histogram of Beta2")
+hist(beta[, 3], main = "Histogram of Beta3")
+hist(beta[, 4], main = "Histogram of Beta4")
+```
+
+As shown in the histogram, the values of Beta1 is maily less than 5. Beta2 is maily located between 0 and 5. Beta3 is mainly located between 2 and 4. Beta4 is mainly located between -1 and 1.
+
+\
+\
+```{r, ref.label=knitr::all_labels(),echo=TRUE,eval=FALSE}
+```
