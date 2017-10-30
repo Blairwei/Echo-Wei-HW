@@ -69,7 +69,7 @@ colnames(time_1)[4] <- c("Sum of Squares")
 pander(time_1, caption = "Time for Different Methods")
 ```
 
-From the table, we can see that vector operations method perform the best, then dopar method and loop method. Parsapply method perfom worst. Sum of squares value is same for all four methods. The cluster I set in Dopar and ParSapply method is 2.
+From the table, we can see that vector operations method perform the best, then dopar method and loop method. Parsapply method perfom worst. Sum of squares value is same for all four methods. The cluster I set in Dopar and ParSapply method is 2. The code for Dopar Method should be foreach(1:1e+06) %dopar% sum((y - mean_y)^2). It takes so long time that my computer get stuck, so I changed it to foreach(1) %dopar% sum((y - mean_y)^2).
 
 # Problem 3
 
@@ -124,7 +124,68 @@ pander(theta, caption = "Coefficients of GD Method")
 pander(Linear_coef, caption = "Coefficients of Linear Regression Methods")
 ```
 
-In the parallelize method, cluster 2 was used. The parameter I made adjustment on is tolerance. As shown in the table *Coefficients of GD Method*, as tolerance becoming smaller, the coefficients becomes more accurate. When tolerance is less or equal than 1e-08, we get the same coefficients with that calculated by linear regression.But gradient descent method seems take more time than linear regression method.
+In the first method, the parameter I made adjustment on is tolerance. 
+
+In the parallelize method, cluster 2 was used. As shown in the table *Coefficients of GD Method*, as tolerance becoming smaller, the coefficients becomes more accurate. When tolerance is less or equal than 1e-08, we get the same coefficients with that calculated by linear regression.But gradient descent method seems take more time than linear regression method.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1256)
+X <- cbind(1,rep(1:10,10))
+m <- length(h)
+cl <- makeCluster(2)
+registerDoParallel(cl)
+tolerance <- 1e-9
+    
+############### Gradient descent################
+GD_time <- 
+system.time({
+dif1 <- 1
+dif2 <- 1
+alpha <- 0.001
+ttheta <- 
+  foreach (i = 1:10, .combine = "cbind") %dopar% {
+    theta <- as.matrix(c(i,i),nrow=2)
+    h <- X%*%as.matrix(c(i,i),nrow=2)+rnorm(100,0,0.2)
+  while(dif1 > tolerance | dif2 > tolerance){
+  grad_0 <- (1/m) * sum(((X%*%theta) - h))
+  grad_1 <- (1/m) * t(X[, 2]) %*% ((X%*%theta) - h)
+  theta_0 <- theta[1] - alpha * grad_0
+  theta_1 <- theta[2] - alpha * grad_1
+  dif1 <- abs(theta_0 - theta[1])
+  dif2 <- abs(theta_1 - theta[2])
+  theta[1] <- theta_0
+  theta[2] <- theta_1
+  } 
+  
+  return(c(i, theta[1], theta[2]))
+  }
+})
+theta <- t(ttheta)
+colnames(theta) <- c("Beginning", "GD theta1", "GD theta2")
+stopCluster(cl)
+
+################## Linear regression##############
+Linear_coef <- matrix(NA, nrow = 10, ncol = 2)
+Linear_Time <-
+system.time({
+linear <- 
+  for (i in 1:10) {
+    theta_co <- as.matrix(c(i,i),nrow=2)
+    h <- X%*%theta_co + rnorm(100,0,0.2)
+  lm_h <- lm(h~0+X)
+  Linear_coef[i, ] <- lm_h$coefficients
+  } 
+})
+colnames(Linear_coef) <- c("LR theta1", "LR theta2")
+
+################## Summary###################
+pander(rbind(GD_time, Linear_Time), caption = "Running time for GD and Linear Methods")
+pander(cbind(theta, Linear_coef), caption = "Coefficients")
+```
+
+In the second method, the parameter I made adjustment on is starting point of theta. 
+
+As shown in the table *Coefficients*, with different starting point, the theta calculate from GD method is almost same as that calculated from Linear Regression.
 
 # problem 4
 
